@@ -95,7 +95,12 @@ static EVENT_HANDLER(application_ready)
       CnetAddr destinationAddr;
       MSG message;
       size_t length = sizeof(MSG);
+      int server = 0;
       CNET_read_application(&destinationAddr, message.data, &length);
+      for (i = 1; i <= nodeinfo.nlinks;i++){
+        if (EveryNeighbor[i].address == (int)destinationAddr) server = 1;
+      }
+      if (server == 0) return;
 
 
       f.len = length;
@@ -109,7 +114,7 @@ static EVENT_HANDLER(application_ready)
         if (EveryNeighbor[i].address == (int)destinationAddr) {
           CNET_write_physical(i,&f,&length);
           CNET_disable_application(ALLNODES);
-          return;
+          //return;
           }
       }
 
@@ -212,7 +217,7 @@ EVENT_HANDLER(reboot_node)
     CNET_set_handler(EV_DEBUG0, display, 0);
     CNET_set_debug_string(EV_DEBUG0, "TIMERS info");
     CNET_enable_application(ALLNODES);
-    memset(EveryNeighbor, 0 , sizeof(EveryNeighbor));
+    //memset(EveryNeighbor, 0 , sizeof(EveryNeighbor));
     memset(ACKEXP, 0, sizeof(ACKEXP));
     memset(SEQSEND, 0, sizeof(SEQSEND));
 
