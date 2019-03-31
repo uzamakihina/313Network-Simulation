@@ -1,16 +1,18 @@
 #include <cnet.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string.h>
 #define NCS 32
 
-typedef enum    { DL_DATA, DL_ACK, DL_DISCOVERY }   FRAMEKIND;
+typedef enum    { DL_DATA, DL_ACK, DL_DISCOVERY, DISCOVERY_ACK }   FRAMEKIND;
 
 typedef struct {
     char        data[MAX_MESSAGE_SIZE];
+    int         address;
 } MSG;
 
 typedef struct {
-    FRAMEKIND    kind;      	// only ever DL_DATA or DL_ACK
+    FRAMEKIND    kind;
     size_t	 len;       	// the length of the msg field only
     int          checksum;  	// checksum of the whole frame
     int          seq;       	// only ever 0 or 1
@@ -29,6 +31,15 @@ static  int       	ackexpected		= 0;
 static	int		nextframetosend		= 0;
 static	int		frameexpected		= 0;
 static  int   neightbor_undiscovered;
+
+typedef struct {
+  char data[100];
+  int address;
+} InfoTracker;
+
+
+static InfoTracker Neightborinfo[32];
+
 
 static void transmit_frame(MSG *msg, FRAMEKIND kind, size_t length, int seqno, int destinationlink)
 {
@@ -52,7 +63,7 @@ static void transmit_frame(MSG *msg, FRAMEKIND kind, size_t length, int seqno, i
 	      CnetTime	timeout;
 
         printf(" DATA transmitted, seq=%d\n", seqno);
-        memcpy(&f.msg, msg, (int)length);
+        //memcpy(&f.msg, msg, (int)length);
 
 	      timeout = FRAME_SIZE(f)*((CnetTime)8000000 / linkinfo[link].bandwidth) +
 				linkinfo[link].propagationdelay;
@@ -63,8 +74,10 @@ static void transmit_frame(MSG *msg, FRAMEKIND kind, size_t length, int seqno, i
 
     case DL_DISCOVERY:
        printf("Transmit discovery, seq=%d\n", seqno);
+       break;
 
-
+   case DISCOVERY_ACK:
+        printf("discoverey ACK sending\n");
 
 
     }
@@ -76,9 +89,11 @@ static void transmit_frame(MSG *msg, FRAMEKIND kind, size_t length, int seqno, i
 
 static EVENT_HANDLER(application_ready)
 {
+    CNET_disable_application(ALLNODES);
 
     if (neightbor_undiscovered > 0 ){
-      transmit_frame(NULL, DL_DISCOVERY, 0, nextframetosend,neightbor_undiscovered);
+      size_t x = sizeof(MSG);
+      transmit_frame(NULL, DL_DISCOVERY, x, nextframetosend,neightbor_undiscovered);
       nextframetosend = 1-nextframetosend;
       return;
     }
@@ -87,7 +102,7 @@ static EVENT_HANDLER(application_ready)
     CnetAddr destaddr;
     lastlength  = sizeof(MSG);
     CHECK(CNET_read_application(&destaddr, lastmsg, &lastlength));
-    CNET_disable_application(ALLNODES);
+
 
     int destinationlink = 1;
 
@@ -127,28 +142,45 @@ static EVENT_HANDLER(physical_ready)
         printf("\t\t\t\tBAD checksum - frame ignored\n");
         return;           // bad checksum, ignore frame
     }
-
+    InfoTracker information;
     switch (f.kind) {
+
+    case DISCOVERY_ACK:
+
+
+      information.address = f.msg.address;
+      strcpy(information.data, f.msg.data);
+      Neightborinfo[link] = information;
+      // strcpy(temperary.data, f.msg.data);
+      // temperary.address = f.msg.address;
+      // Neightborinfo[link] = temperary;
+      printf("DISCOVERYACK\n");
+      break;
 
     case DL_DISCOVERY:
       printf("\t\t\t\tDATA received, seq=%d, ", f.seq);
       if(f.seq == frameexpected) {
           printf("got discovery\n");
-          len = f.len;
+          //len = f.len;
           //CHECK(CNET_write_application(&f.msg, &len));
+          f.msg.address = nodeinfo.address;
+          strcpy(f.msg.data, nodeinfo.nodename);
           frameexpected = 1-frameexpected;
+          size_t x = sizeof(MSG);
+          transmit_frame(NULL, DISCOVERY_ACK, x, f.seq, 1);
       }
       else
           printf("ignored\n");
       transmit_frame(NULL, DL_ACK, 0, f.seq, 1);
 
       break;
+
     case DL_ACK :
         if(f.seq == ackexpected) {
             printf("\t\t\t\tACK received, seq=%d\n", f.seq);
             CNET_stop_timer(lasttimer);
             ackexpected = 1-ackexpected;
-            CNET_enable_application(ALLNODES);
+            //CNET_enable_application(ALLNODES);
         }
 	      break;
 
@@ -178,6 +210,10 @@ static EVENT_HANDLER(showstate)
     printf(
     "\n\tackexpected\t= %d\n\tnextframetosend\t= %d\n\tframeexpected\t= %d\n",
 		    ackexpected, nextframetosend, frameexpected);
+
+    for (int i =1; i <= nodeinfo.nlinks; i++){
+      printf("Neightbore with address %d , and name %s", Neightborinfo[i].address, Neightborinfo[i].data);
+    }
 }
 
 EVENT_HANDLER(reboot_node)

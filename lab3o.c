@@ -6,24 +6,23 @@
 
 typedef enum    { DL_DATA, DL_ACK, DISCOVER, DISCOVER_ACK}   FRAMEKIND;
 
-#define FRAME_HEADER_SIZE  (sizeof(FRAME) - sizeof(MSG))
-#define FRAME_SIZE(f)      (FRAME_HEADER_SIZE + f.len)
+// #define FRAME_HEADER_SIZE  (sizeof(FRAME_D) - sizeof(MSG_D))
+// #define FRAME_SIZE(f)      (FRAME_HEADER_SIZE + f.len)
 
 void resend_packet();
 #define NCS 32
 
-typedef struct {
-    char data[MAX_MESSAGE_SIZE];
-} MSG;
+// typedef struct {
+//     char data[MAX_MESSAGE_SIZE];
+// } MSG_D;
 
 typedef struct {
     FRAMEKIND    kind;      	// only ever DL_DATA or DL_ACK
-    size_t	     len;       	// the length of the msg field only
-    int          checksum;  	// checksum of the whole frame
-    int          seq;       	// only ever 0 or 1
-    MSG          msg;         // name
+    int          checksum;  	// checksum of the whole FRAME_D
+    int          seq;       	// only ever 0 or 1        // name
     int          nodeaddress;
-} FRAME;
+    char          msg[MAX_MESSAGE_SIZE];
+} FRAME_D;
 
 typedef struct {
   char name[100];
@@ -32,21 +31,24 @@ typedef struct {
 } InfoTracker ;
 InfoTracker EveryNeighbor[32];
 
-int discovery[32];
-FRAME Ninfo[32];
-int neighborsRemaining;
-int i =0;
+// static int discovery[32];
+// static FRAME_D Ninfo[32];
+static int neighborsRemaining;
+static int i =0;
 
-int ACKEXP[32];
-int SEQSEND[32];
+static int ACKEXP[32];
+static int SEQSEND[32];
 
-CnetTime lastTime;
+static CnetTime lastTime;
 
 
-FRAME global_frame;
-size_t global_size;
-int global_link;
-int sendLink;
+
+static FRAME_D global_frame;
+static size_t global_size;
+static int global_link;
+static int sendLink;
+
+
 
 static EVENT_HANDLER(display){
   // for neighboring nodes - needs address, node name,
@@ -65,22 +67,21 @@ static EVENT_HANDLER(application_ready)
     //char	buffer[MAX_MESSAGE_SIZE];
     //size_t	length;
     CHECK(CNET_disable_application(ALLNODES));
+    FRAME_D f;
+
     if (neighborsRemaining > 0){
-      //size_t length = sizeof(MSG);
-      size_t length = sizeof(FRAME);
-
-      MSG msg;
+      //size_t length = sizeof(MSG_D);
+      size_t length = MAX_MESSAGE_SIZE;
       CnetAddr dest;
-      FRAME f;
 
-      CHECK(CNET_read_application(&dest, msg.data, &length));
 
+      CHECK(CNET_read_application(&dest, f.data, &length));
       f.kind = DISCOVER;
       f.checksum = 0;
-      f.len = sizeof(MSG);
+      f.seq = 0;
       f.nodeaddress = (int) nodeinfo.address;
 
-      length = FRAME_SIZE(f);
+      length = sizeof(FRAME_D);
       f.checksum  = CNET_ccitt((unsigned char *)&f, (int)length);
 
       printf("giving to link %d with checksum %d and address %d \n", neighborsRemaining , f.checksum, nodeinfo.address);
@@ -88,75 +89,73 @@ static EVENT_HANDLER(application_ready)
       global_frame = f;
       global_link = neighborsRemaining;
       global_size = length;
-      CHECK(CNET_write_physical(neighborsRemaining, &f, &length));
+      CHECK(CNET_write_physical(neighborsRemaining, (char *) &f, &length));
+      printf("SIZE OF FRAME IS %d\n", FRAME_SIZE(f));
 
       CnetTime timeout;
       timeout = FRAME_SIZE(f)*((CnetTime)8000000 / linkinfo[neighborsRemaining].bandwidth) + linkinfo[neighborsRemaining].propagationdelay;
       lastTime = CNET_start_timer(EV_TIMER1, 3 * timeout, 0);
 
-      //CNET_disable_application(ALLNODES);
-      //return;
     }
     else{
-      size_t length = sizeof(FRAME);
-      MSG message;
+
+      size_t length = sizeof(MSG_D);
       CnetAddr destinationAddr;
-      FRAME f;
-      CHECK(CNET_read_application(&destinationAddr, message.data, &length));
+      MSG_D garbage;
+      CHECK(CNET_read_application(&destinationAddr, garbage.data, &length));
+
       int server = 0;
       for (i = 1; i <= nodeinfo.nlinks;i++){
         if (EveryNeighbor[i].address == (int)destinationAddr) server = 1;
       }
       if (server == 0) return;
 
+
       f.kind = DL_DATA;
       f.checksum = 0;
-      f.len = sizeof(MSG);
-      f.nodeaddress = (int) nodeinfo.address;
-
-      length = FRAME_SIZE(f);
-      f.checksum  = CNET_ccitt((unsigned char *)&f, (int)length);
-
-
+      f.seq = 0;
+      f.len = sizeof(f.msg);
+      f.nodeaddress =  (int) nodeinfo.address;
 
       for(int i = 1; i <= nodeinfo.nlinks ; i++){
-        printf("destinaltion = %d message = %s size = %d \n", (int) destinationAddr, message.data, (int) length );
+        printf("destinaltion = %d message = %s size = %d \n", (int) destinationAddr, f.msg.data, (int) length );
         if (EveryNeighbor[i].address == (int)destinationAddr) {
-          printf("REACHED HERE sendint to link %d\n", i);
+
           sendLink = i;
+          printf("REACHED HERE sendint to link %d\n", sendLink);
+          break;
           //CHECK(CNET_disable_application(ALLNODES));
           //return;
           }
       }
-    CHECK(CNET_write_physical(sendLink,&f,&length));
-    // printf("REACHED ###############\n" );
-    // sleep(1);
-    // CnetTime timeout;
-    // timeout = FRAME_SIZE(f)*((CnetTime)8000000 / linkinfo[neighborsRemaining].bandwidth) + linkinfo[neighborsRemaining].propagationdelay;
-    // lastTime = CNET_start_timer(EV_TIMER1, 3 * timeout, 0);
+      length = FRAME_SIZE(f);
+      f.checksum  = CNET_ccitt((unsigned char *)&f, (int)length);
+      CHECK(CNET_write_physical(sendLink, (char *)&f,&length));
+
     }
 
 
 }
 
 void resend_packet(){
-  CNET_write_physical(global_link, &global_frame, &global_size);
+  printf("REsending\n");
+  CNET_write_physical(global_link, (char *) &global_frame, &global_size);
   CNET_stop_timer(lastTime);
   CnetTime timeout;
-  timeout = ((sizeof(FRAME) - sizeof(MSG)) + global_frame.len)*((CnetTime)8000000 / linkinfo[global_link].bandwidth) + linkinfo[global_link].propagationdelay;
+  timeout = ((sizeof(FRAME_D) - sizeof(MSG_D)) + global_frame.len)*((CnetTime)8000000 / linkinfo[global_link].bandwidth) + linkinfo[global_link].propagationdelay;
   lastTime = CNET_start_timer(EV_TIMER1, 3 * timeout, 0);
 
 }
 
 
  static EVENT_HANDLER(physical_ready){
-   printf("REACHED PHYSICAL");
 
-    FRAME        f;
-    size_t	     len;
+    FRAME_D        f;
+    size_t       len = sizeof(FRAME_D);
     int          link;
-    len         = sizeof(FRAME);
     CHECK(CNET_read_physical(&link, &f, &len));
+
+    printf("TOOK FROM PHYSICAL WITH ADDRESS %d\n", f.nodeaddress);
 
     //printf("address received is %d\n ", f.nodeaddress);
 
@@ -172,17 +171,14 @@ void resend_packet(){
 
       printf("   %d wants to discover me \n ", f.nodeaddress);
       printf("  Checksum succeed\n");
-
       strcpy(f.msg.data, nodeinfo.nodename);
-
-
-      len = FRAME_SIZE(f);
+      f.len = sizeof(f.msg);
       f.nodeaddress =  (int) nodeinfo.address;
       f.kind = DISCOVER_ACK;
+      len = FRAME_SIZE(f);
       f.checksum = CNET_ccitt((unsigned char *)&f, (int)len);
-      CHECK(CNET_write_physical(link, &f, &len));
+      CHECK(CNET_write_physical(link, (char * )&f, &len));
       return;
-
     }
 
     if (f.kind == DISCOVER_ACK){
@@ -205,12 +201,13 @@ void resend_packet(){
     }
 
     if(f.kind == DL_DATA){
+
       printf("SENDING DL DATA TO link %s\n", link);
+
       f.kind = DL_ACK;
-      f.checksum = CNET_ccitt((unsigned char *)&f, (int)len);
-      printf("HERE\n");
       len = FRAME_SIZE(f);
-      CHECK(CNET_write_physical(link,&f,&len));
+      f.checksum = CNET_ccitt((unsigned char *)&f, (int)len);
+      CHECK(CNET_write_physical(link,(char *) &f,&len));
       return;
     }
 
@@ -235,6 +232,8 @@ EVENT_HANDLER(reboot_node)
       printf("There are more than 32 nodes\n");
       exit(1);
     }
+    static char buf5[50000];
+    setvbuf ( stdout , buf5 , _IOFBF , sizeof(buf5) );
     CHECK(CNET_set_handler(EV_APPLICATIONREADY, application_ready, 0));
     CHECK(CNET_set_handler( EV_PHYSICALREADY,    physical_ready, 0));
     CHECK(CNET_set_handler( EV_TIMER1,           timeouts, 0));
@@ -243,9 +242,7 @@ EVENT_HANDLER(reboot_node)
     CHECK(CNET_set_handler(EV_DEBUG0, display, 0));
     CHECK(CNET_set_debug_string(EV_DEBUG0, "TIMERS info"));
     CHECK(CNET_enable_application(ALLNODES));
-    //memset(EveryNeighbor, 0 , sizeof(EveryNeighbor));
-    memset(ACKEXP, 0, sizeof(ACKEXP));
-    memset(SEQSEND, 0, sizeof(SEQSEND));
+
 
 
 }
