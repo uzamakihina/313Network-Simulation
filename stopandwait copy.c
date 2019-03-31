@@ -1,9 +1,28 @@
 #include <cnet.h>
 #include <stdlib.h>
 #include <string.h>
-#define NCS 32
+#define NCS 32;
+/*  This is an implementation of a stop-and-wait data link protocol.
+    It is based on Tanenbaum's `protocol 4', 2nd edition, p227
+    (or his 3rd edition, p205).
+    This protocol employs only data and acknowledgement frames -
+    piggybacking and negative acknowledgements are not used.
 
-typedef enum    { DL_DATA, DL_ACK, DL_DISCOVERY }   FRAMEKIND;
+    It is currently written so that only one node (number 0) will
+    generate and transmit messages and the other (number 1) will receive
+    them. This restriction seems to best demonstrate the protocol to
+    those unfamiliar with it.
+    The restriction can easily be removed by "commenting out" the line
+
+	    if(nodeinfo.nodenumber == 0)
+
+    in reboot_node(). Both nodes will then transmit and receive (why?).
+
+    Note that this file only provides a reliable data-link layer for a
+    network of 2 nodes.
+ */
+
+typedef enum    { DL_DATA, DL_ACK }   FRAMEKIND;
 
 typedef struct {
     char        data[MAX_MESSAGE_SIZE];
@@ -28,13 +47,10 @@ static  CnetTimerID	lasttimer		= NULLTIMER;
 static  int       	ackexpected		= 0;
 static	int		nextframetosend		= 0;
 static	int		frameexpected		= 0;
-static  int   neightbor_undiscovered;
 
-static void transmit_frame(MSG *msg, FRAMEKIND kind, size_t length, int seqno, int destinationlink)
+
+static void transmit_frame(MSG *msg, FRAMEKIND kind, size_t length, int seqno)
 {
-
-    printf("destination is %d\n", destinationlink);
-
     FRAME       f;
     int		link = 1;
 
@@ -46,29 +62,21 @@ static void transmit_frame(MSG *msg, FRAMEKIND kind, size_t length, int seqno, i
     switch (kind) {
     case DL_ACK :
         printf("ACK transmitted, seq=%d\n", seqno);
-	      break;
+	break;
 
     case DL_DATA: {
-	      CnetTime	timeout;
+	CnetTime	timeout;
 
         printf(" DATA transmitted, seq=%d\n", seqno);
         memcpy(&f.msg, msg, (int)length);
 
-	      timeout = FRAME_SIZE(f)*((CnetTime)8000000 / linkinfo[link].bandwidth) +
+	timeout = FRAME_SIZE(f)*((CnetTime)8000000 / linkinfo[link].bandwidth) +
 				linkinfo[link].propagationdelay;
 
         lasttimer = CNET_start_timer(EV_TIMER1, 3 * timeout, 0);
-	      break;
-        }
-
-    case DL_DISCOVERY:
-       printf("Transmit discovery, seq=%d\n", seqno);
-
-
-
-
+	break;
+      }
     }
-
     length      = FRAME_SIZE(f);
     f.checksum  = CNET_ccitt((unsigned char *)&f, (int)length);
     CHECK(CNET_write_physical(link, &f, &length));
@@ -76,30 +84,18 @@ static void transmit_frame(MSG *msg, FRAMEKIND kind, size_t length, int seqno, i
 
 static EVENT_HANDLER(application_ready)
 {
-
-    if (neightbor_undiscovered > 0 ){
-      transmit_frame(NULL, DL_DISCOVERY, 0, nextframetosend,neightbor_undiscovered);
-      nextframetosend = 1-nextframetosend;
-      return;
-    }
-
-
     CnetAddr destaddr;
+
     lastlength  = sizeof(MSG);
     CHECK(CNET_read_application(&destaddr, lastmsg, &lastlength));
     CNET_disable_application(ALLNODES);
 
-    int destinationlink = 1;
+
+
 
     printf("down from application, seq=%d\n", nextframetosend);
-    transmit_frame(lastmsg, DL_DATA, lastlength, nextframetosend,destinationlink);
+    transmit_frame(lastmsg, DL_DATA, lastlength, nextframetosend);
     nextframetosend = 1-nextframetosend;
-
-
-
-
-
-
 }
 
 static EVENT_HANDLER(physical_ready)
@@ -111,16 +107,6 @@ static EVENT_HANDLER(physical_ready)
     len         = sizeof(FRAME);
     CHECK(CNET_read_physical(&link, &f, &len));
 
-
-    if (nodeinfo.nodetype == NT_ROUTER){
-      int sendlink;
-      if (link == 1) sendlink = 2;
-      else{sendlink = 1;}
-      CHECK(CNET_write_physical(sendlink, &f, &len));
-      return;
-    }
-
-
     checksum    = f.checksum;
     f.checksum  = 0;
     if(CNET_ccitt((unsigned char *)&f, (int)len) != checksum) {
@@ -129,20 +115,6 @@ static EVENT_HANDLER(physical_ready)
     }
 
     switch (f.kind) {
-
-    case DL_DISCOVERY:
-      printf("\t\t\t\tDATA received, seq=%d, ", f.seq);
-      if(f.seq == frameexpected) {
-          printf("got discovery\n");
-          len = f.len;
-          //CHECK(CNET_write_application(&f.msg, &len));
-          frameexpected = 1-frameexpected;
-      }
-      else
-          printf("ignored\n");
-      transmit_frame(NULL, DL_ACK, 0, f.seq, 1);
-
-      break;
     case DL_ACK :
         if(f.seq == ackexpected) {
             printf("\t\t\t\tACK received, seq=%d\n", f.seq);
@@ -162,15 +134,17 @@ static EVENT_HANDLER(physical_ready)
         }
         else
             printf("ignored\n");
-        transmit_frame(NULL, DL_ACK, 0, f.seq, 1);
+        transmit_frame(NULL, DL_ACK, 0, f.seq);
 	      break;
+
     }
+
 }
 
 static EVENT_HANDLER(timeouts)
 {
     printf("timeout, seq=%d\n", ackexpected);
-    transmit_frame(lastmsg, DL_DATA, lastlength, ackexpected,1);
+    transmit_frame(lastmsg, DL_DATA, lastlength, ackexpected);
 }
 
 static EVENT_HANDLER(showstate)
@@ -189,16 +163,13 @@ EVENT_HANDLER(reboot_node)
 
     lastmsg	= calloc(1, sizeof(MSG));
 
-
+    CHECK(CNET_set_handler( EV_APPLICATIONREADY, application_ready, 0));
     CHECK(CNET_set_handler( EV_PHYSICALREADY,    physical_ready, 0));
     CHECK(CNET_set_handler( EV_TIMER1,           timeouts, 0));
     CHECK(CNET_set_handler( EV_DEBUG0,           showstate, 0));
 
     CHECK(CNET_set_debug_string( EV_DEBUG0, "State"));
 
-    if(nodeinfo.nodetype != NT_ROUTER){
+
 	  CNET_enable_application(ALLNODES);
-    CHECK(CNET_set_handler( EV_APPLICATIONREADY, application_ready, 0));
-    neightbor_undiscovered = nodeinfo.nlinks;
-  }
 }
