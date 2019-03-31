@@ -60,9 +60,9 @@ static EVENT_HANDLER(display){
 
 static EVENT_HANDLER(application_ready)
 {
-    char	buffer[MAX_MESSAGE_SIZE];
+    //char	buffer[MAX_MESSAGE_SIZE];
     size_t	length;
-    length = sizeof(buffer);
+    length = sizeof(FRAME);
 
     if (neighborsRemaining > 0){
       size_t length = sizeof(MSG);
@@ -120,8 +120,6 @@ static EVENT_HANDLER(application_ready)
 
     }
 
-
-
 }
 
 void resend_packet(){
@@ -143,7 +141,6 @@ static EVENT_HANDLER(physical_ready){
     CHECK(CNET_read_physical(&link, &f, &len));
     int checkActual = f.checksum; //CNET_ccitt((unsigned char *)&f, (int)len);
     f.checksum = 0;
-
     if (checkActual != CNET_ccitt((unsigned char *)&f, (int)len)  ) {
       printf("Checkfailed\n");
       return;
@@ -156,6 +153,10 @@ static EVENT_HANDLER(physical_ready){
       printf("  Checksum succeed\n");
 
       strcpy(f.msg.data, nodeinfo.nodename);
+
+
+      len = FRAME_SIZE(f);
+
       f.nodeaddress =  (int) nodeinfo.address;
       f.kind = DISCOVER_ACK;
       f.checksum = CNET_ccitt((unsigned char *)&f, (int)len);
@@ -177,22 +178,27 @@ static EVENT_HANDLER(physical_ready){
           CNET_enable_application(ALLNODES);
           if(neighborsRemaining == 0) printf("All neighbors discovered\n");
         }
+
+
+
         return;
     }
 
     if(f.kind == DL_DATA){
-      printf("SENDING DL DATA \n");
+      printf("SENDING DL DATA TO link %s\n", link);
       f.kind = DL_ACK;
       f.checksum = CNET_ccitt((unsigned char *)&f, (int)len);
+
+      len = FRAME_SIZE(f);
       CNET_write_physical(link,&f,&len);
       return;
     }
 
     if(f.kind == DL_ACK){
-      printf("DLACKED\n");
+      printf("MY packet has been acked\n");
+      CNET_enable_application(ALLNODES);
       return;
     }
-
 
 }
 
@@ -217,7 +223,7 @@ EVENT_HANDLER(reboot_node)
     CNET_set_handler(EV_DEBUG0, display, 0);
     CNET_set_debug_string(EV_DEBUG0, "TIMERS info");
     CNET_enable_application(ALLNODES);
-    //memset(EveryNeighbor, 0 , sizeof(EveryNeighbor));
+    memset(EveryNeighbor, 0 , sizeof(EveryNeighbor));
     memset(ACKEXP, 0, sizeof(ACKEXP));
     memset(SEQSEND, 0, sizeof(SEQSEND));
 
