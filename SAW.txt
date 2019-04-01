@@ -1,15 +1,26 @@
 //  This is a sample cnet topology file for "stopandwait.c".
 //  For the first time we now see frame corruption in the physical layer.
+// clients 1-99
+//routers 100-199
+//servers 200-299
 
 compile = "lab3F.c"
 
 probframecorrupt = 0
 messagerate = 1500ms
 
-host perth { x=100, y=50, address = 302, link to melbourne}
+host perth { x=100, y=50, address = 32, link to router1}
+host melbourne { x=400, y=50, address = 35, link to router1}
 
-host melbourne { x=400, y=50, address = 351, link to perth}
+router router1 {x = 250, y = 50, address = 122}
 
-//router router1 {x = 200, y = 50, address = 12}
+host Archaea{ x = 400 , y = 200, address = 67, link to perth}
+host Yujiro {x = 100 , y = 200, address = 99, link to Archaea}
 
-host Archaea{ x = 200 , y = 200, address = 67, link to perth}
+router router2 {x = 250, y=275, address = 101, link to Yujiro}
+
+host baki {x = 400, y = 350, address = 4, link to router2}
+host cozue {x = 100, y = 350, address = 6, link to baki}
+
+host jabami {x = 400, y = 500, address = 69, link to cozue}
+host mob {x = 100, y = 500, address = 77, link to jabami}
