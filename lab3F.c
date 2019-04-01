@@ -6,15 +6,8 @@
 
 typedef enum    {  DISCOVER, DISCOVER_ACK, DL_DATA,DL_ACK}   FRAMEKIND;
 
-// #define FRAME_HEADER_SIZE  (sizeof(FRAME_D) - sizeof(MSG_D))
-// #define FRAME_SIZE(f)      (FRAME_HEADER_SIZE + f.len)
-
 void resend_packet();
 #define NCS 32
-
-// typedef struct {
-//     char data[MAX_MESSAGE_SIZE];
-// } MSG_D;
 
 typedef struct {
     FRAMEKIND    kind;      	// only ever DL_DATA or DL_ACK
@@ -29,12 +22,12 @@ typedef struct {
   int address;
   int exists;
 } InfoTracker ;
+
 static InfoTracker EveryNeighbor[32];
-
 static int neighborsRemaining;
-
 static int EXPECT[33];
 static int SEQSEND[33];
+//static CnetTimerID	lasttimer		= NULLTIMER;
 
 static EVENT_HANDLER(display){
 
@@ -52,12 +45,11 @@ static EVENT_HANDLER(application_ready)
 
     CHECK(CNET_disable_application(ALLNODES));
     FRAME_D f;
-
+    //lasttimer = 1;
 
     if (neighborsRemaining > 0){
       size_t length = MAX_MESSAGE_SIZE;
       CnetAddr dest;
-
 
       CHECK(CNET_read_application(&dest, f.msg, &length));
       f.kind = DISCOVER;
@@ -93,7 +85,15 @@ static EVENT_HANDLER(application_ready)
        length = sizeof(FRAME_D);
        f.checksum  = CNET_ccitt((unsigned char *)&f, (int)length);
        CHECK(CNET_write_physical(linker,&f,&length));
+       // CnetTime temp;
+       // temp = sizeof(FRAME_D)*((CnetTime)8000000 / linkinfo[linker].bandwidth) + linkinfo[linker].propagationdelay;
+       // TimeCounter = CNET_start_timer(EV_TIMER1, 5 * temp, 0);
+
      }
+
+
+
+
 }
 
 
@@ -167,7 +167,9 @@ static EVENT_HANDLER(application_ready)
 
 }
 
-static EVENT_HANDLER(timeouts){}
+static EVENT_HANDLER(timeouts){
+    printf("timeout");
+}
 
 
 EVENT_HANDLER(reboot_node)
@@ -188,7 +190,7 @@ EVENT_HANDLER(reboot_node)
     CHECK(CNET_set_handler(EV_DEBUG0, display, 0));
     CHECK(CNET_set_debug_string(EV_DEBUG0, "TIMERS info"));
     CHECK(CNET_enable_application(ALLNODES));
-    for (int i = 1; i <= 32; i++){
+    for (int i = 0; i <= 32; i++){
       SEQSEND[i] = 0;
       EXPECT[i] = 0;
     }
