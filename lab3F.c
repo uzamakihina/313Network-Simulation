@@ -33,7 +33,7 @@ static InfoTracker EveryNeighbor[32];
 
 static int neighborsRemaining;
 
-static int ACKEXP[33];
+static int EXPECT[33];
 static int SEQSEND[33];
 
 //static CnetTime lastTime;
@@ -54,7 +54,7 @@ static EVENT_HANDLER(display){
 
   for (int i =1; i <= nodeinfo.nlinks; i ++){
     printf("Nodename = %s , nodeaddress = %d \n", EveryNeighbor[i].name , EveryNeighbor[i].address);
-    printf("ACKEXP = %d, SEQSEND = %d \n", ACKEXP[i], SEQSEND[i]);
+    printf("EXPECT = %d, SEQSEND = %d \n", EXPECT[i], SEQSEND[i]);
   }
   printf("Simulation time = %d \n", nodeinfo.time_in_usec);
 }
@@ -97,7 +97,7 @@ static EVENT_HANDLER(application_ready)
 
        f.kind = DL_DATA;
        f.checksum = 0;
-       f.seq = 0;
+       f.seq = SEQSEND[linker];
        f.nodeaddress = (int) nodeinfo.address;
 
        length = sizeof(FRAME_D);
@@ -124,11 +124,11 @@ static EVENT_HANDLER(application_ready)
     f.checksum = 0;
     if (compare != CNET_ccitt((unsigned char *)&f, (int)length)) return;
 
-    if (f.seq == ACKEXP[link]){
-      ACKEXP[link] = 1 - ACKEXP[link];
-    }else{
-      printf("Wrong sequence number ignoring packet\n");
-    }
+    if (f.seq == EXPECT[link] && (f.kind == DISCOVER || f.kind == DL_DATA)){
+      EXPECT[link] = 1 - EXPECT[link];
+    }else if (f.seq == SEQSEND[link] && (f.kind == DISCOVER_ACK || f.kind == DL_ACK)){
+      SEQSEND[link] = 1 - SEQSEND[link];
+    }else{printf("WRONG PACKET SEQ IGNORE\n");    }
 
     InfoTracker temp;
 
@@ -144,6 +144,7 @@ static EVENT_HANDLER(application_ready)
         break;
 
       case DISCOVER_ACK:
+
         strcpy(temp.name, f.msg);
         temp.address = f.nodeaddress;
         EveryNeighbor[link] = temp;
@@ -162,6 +163,7 @@ static EVENT_HANDLER(application_ready)
 
         break;
       case DL_ACK:
+
         printf("GOT AN ACK FROM DATA REQUEST\n");
         CNET_enable_application(ALLNODES);
         break;
@@ -192,6 +194,7 @@ EVENT_HANDLER(reboot_node)
     CHECK(CNET_enable_application(ALLNODES));
     for (int i = 1; i <= 32; i++){
       SEQSEND[i] = 0;
+      EXPECT[i] = 0;
     }
 
 
